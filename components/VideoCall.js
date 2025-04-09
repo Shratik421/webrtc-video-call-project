@@ -1,4 +1,5 @@
 // components/VideoCall.js
+'use client'
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 import {
@@ -100,7 +101,7 @@ export default function VideoCall({ roomID }) {
           return;
         }
 
-        localStreamRef.current = stream;
+      localStreamRef.current = stream.clone();
 
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
