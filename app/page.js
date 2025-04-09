@@ -1,103 +1,213 @@
-import Image from "next/image";
+"use client";
+
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import VideoCall from "../components/VideoCall";
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              app/page.js
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [roomID, setRoomID] = useState("");
+  const [generatedRoomID, setGeneratedRoomID] = useState("");
+  const [activeRoom, setActiveRoom] = useState(null);
+  const [isJoiningRoom, setIsJoiningRoom] = useState(false);
+  const [error, setError] = useState(null);
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  // Generate a random room ID
+  useEffect(() => {
+    // Generate a unique room ID
+    const generateRoomID = () => {
+      return Math.random().toString(36).substring(2, 15);
+    };
+
+    setGeneratedRoomID(generateRoomID());
+  }, []);
+
+  // Check URL for room ID when component mounts
+  useEffect(() => {
+    const room = searchParams.get("room");
+    if (room) {
+      setRoomID(room);
+      joinRoom(room);
+    }
+  }, [searchParams]);
+
+  const createRoom = () => {
+    try {
+      const newRoomID = generatedRoomID;
+      setActiveRoom(newRoomID);
+
+      // Update URL without refreshing
+      router.push(`/?room=${newRoomID}`);
+    } catch (err) {
+      setError("Failed to create room");
+      console.error("Error creating room:", err);
+    }
+  };
+
+  const joinRoom = (roomToJoin = roomID) => {
+    try {
+      if (!roomToJoin.trim()) {
+        setError("Please enter a room ID");
+        return;
+      }
+
+      setIsJoiningRoom(true);
+      setActiveRoom(roomToJoin);
+
+      // Update URL without refreshing
+      router.push(`/?room=${roomToJoin}`);
+    } catch (err) {
+      setError("Failed to join room");
+      console.error("Error joining room:", err);
+    } finally {
+      setIsJoiningRoom(false);
+    }
+  };
+
+  const leaveRoom = () => {
+    setActiveRoom(null);
+    router.push("/");
+  };
+
+  return (
+    <div className="container">
+      <h1>Next.js WebRTC Video Call</h1>
+
+      {error && (
+        <div className="error-container">
+          <p>{error}</p>
+          <button onClick={() => setError(null)}>Dismiss</button>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      )}
+
+      {!activeRoom ? (
+        <div className="room-selection">
+          <div className="create-room">
+            <h2>Create a New Room</h2>
+            <p>Room ID: {generatedRoomID}</p>
+            <button onClick={createRoom} className="create-room-btn">
+              Create Room
+            </button>
+          </div>
+
+          <div className="join-room">
+            <h2>Join an Existing Room</h2>
+            <input
+              type="text"
+              placeholder="Enter Room ID"
+              value={roomID}
+              onChange={(e) => setRoomID(e.target.value)}
+              className="room-input"
+            />
+            <button
+              onClick={() => joinRoom()}
+              disabled={isJoiningRoom}
+              className="join-room-btn"
+            >
+              {isJoiningRoom ? "Joining..." : "Join Room"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="active-room">
+          <VideoCall roomID={activeRoom} />
+          <button onClick={leaveRoom} className="leave-room-btn">
+            Leave Room
+          </button>
+        </div>
+      )}
+
+      <style jsx>{`
+        .container {
+          max-width: 1200px;
+          margin: 0 auto;
+          padding: 20px;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+            Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
+        }
+
+        h1 {
+          text-align: center;
+          margin-bottom: 40px;
+        }
+
+        .error-container {
+          background-color: #ffeeee;
+          border: 1px solid #ff4d4f;
+          border-radius: 4px;
+          padding: 10px 20px;
+          margin-bottom: 20px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .error-container button {
+          background-color: transparent;
+          border: 1px solid #ff4d4f;
+          color: #ff4d4f;
+          border-radius: 4px;
+          padding: 5px 10px;
+          cursor: pointer;
+        }
+
+        .room-selection {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 40px;
+        }
+
+        .create-room,
+        .join-room {
+          flex: 1;
+          min-width: 300px;
+          padding: 20px;
+          border: 1px solid #e0e0e0;
+          border-radius: 8px;
+        }
+
+        .room-input {
+          width: 100%;
+          padding: 10px;
+          margin-bottom: 20px;
+          border: 1px solid #d9d9d9;
+          border-radius: 4px;
+        }
+
+        button {
+          padding: 10px 20px;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-weight: bold;
+        }
+
+        .create-room-btn {
+          background-color: #1890ff;
+          color: white;
+        }
+
+        .join-room-btn {
+          background-color: #52c41a;
+          color: white;
+        }
+
+        .leave-room-btn {
+          background-color: #ff4d4f;
+          color: white;
+          margin-top: 20px;
+        }
+
+        button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .active-room {
+          margin-top: 20px;
+        }
+      `}</style>
     </div>
   );
 }
