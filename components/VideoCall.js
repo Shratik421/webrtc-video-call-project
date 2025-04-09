@@ -1,5 +1,5 @@
 // components/VideoCall.js
-'use client'
+"use client";
 import { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 import {
@@ -26,42 +26,59 @@ export default function VideoCall({ roomID }) {
   const peerConnectionRef = useRef(null);
   const localVideoRef = useRef(null);
   const remoteVideoRef = useRef(null);
+  const roomJoinedRef = useRef(false);
 
   // Initialize socket connection
   useEffect(() => {
+    let isMounted = true;
+
     const initSocket = async () => {
       try {
         // Make sure socket server is running
         await fetch("/api/socket");
 
+        if (!isMounted) return;
+
         socketRef.current = io();
 
         socketRef.current.on("connect", () => {
+          if (!isMounted) return;
           setSocketConnected(true);
           setStatus("Connected to signaling server");
 
           // Join the room when socket is connected
-          socketRef.current.emit("join-room", roomID);
+          const normalizedRoomID = roomID.toString().trim();
+          console.log(`Emitting join-room for ${normalizedRoomID}`);
+          socketRef.current.emit("join-room", normalizedRoomID);
         });
 
         socketRef.current.on("connect_error", (err) => {
+          if (!isMounted) return;
           console.error("Socket connection error:", err);
           setError("Failed to connect to signaling server");
           setStatus("Connection failed");
         });
 
         // Room events
-        socketRef.current.on("room_created", () => {
+        socketRef.current.on("room_created", (createdRoomID) => {
+          if (!isMounted) return;
+          console.log(`Room created: ${createdRoomID}`);
+          roomJoinedRef.current = true;
           setStatus("Waiting for someone to join...");
         });
 
-        socketRef.current.on("room_joined", () => {
+        socketRef.current.on("room_joined", (joinedRoomID) => {
+          if (!isMounted) return;
+          console.log(`Room joined: ${joinedRoomID}`);
+          roomJoinedRef.current = true;
           setStatus("Connected to room, starting call...");
           socketRef.current.emit("start_call", roomID);
         });
 
-        socketRef.current.on("full_room", () => {
-          setError("The room is full, please try another room");
+        socketRef.current.on("full_room", (fullRoomID) => {
+          if (!isMounted) return;
+          console.log(`Room is full: ${fullRoomID}`);
+          setError(`The room ${fullRoomID} is full, please try another room`);
           setStatus("Room full");
         });
 
@@ -70,13 +87,8 @@ export default function VideoCall({ roomID }) {
         socketRef.current.on("webrtc_offer", handleWebRTCOffer);
         socketRef.current.on("webrtc_answer", handleWebRTCAnswer);
         socketRef.current.on("webrtc_ice_candidate", handleWebRTCIceCandidate);
-
-        return () => {
-          if (socketRef.current) {
-            socketRef.current.disconnect();
-          }
-        };
       } catch (err) {
+        if (!isMounted) return;
         console.error("Failed to initialize socket:", err);
         setError("Failed to initialize connection");
         setStatus("Setup failed");
@@ -84,15 +96,64 @@ export default function VideoCall({ roomID }) {
     };
 
     initSocket();
+
+    return () => {
+      isMounted = false;
+
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
   }, [roomID]);
 
   // Initialize local stream
   useEffect(() => {
+    let isMounted = true;
+
     const setupMediaStream = async () => {
       try {
         if (!socketConnected) return;
 
         setStatus("Accessing camera and microphone...");
+        const { stream, error: mediaError } = await getLocalStream();
+
+        if (!isMounted) return;
+
+        if (mediaError) {
+          setError(mediaError);
+          setStatus("Media access failed");
+          return;
+        }
+
+        localStreamRef.current = stream;
+
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+          setStatus("Camera and microphone ready");
+        }
+      } catch (err) {
+        if (!isMounted) return;
+        console.error("Error setting up media stream:", err);
+        setError("Failed to access media devices");
+        setStatus("Setup failed");
+      }
+    };
+
+    setupMediaStream();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [socketConnected]);
+
+  // WebRTC handlers
+  const handleStartCall = async () => {
+    try {
+      setStatus("Call starting...");
+
+      // Check if local stream is available
+      if (!localStreamRef.current) {
+        // Try to initialize the stream if it's not available
         const { stream, error: mediaError } = await getLocalStream();
 
         if (mediaError) {
@@ -101,130 +162,103 @@ export default function VideoCall({ roomID }) {
           return;
         }
 
-      localStreamRef.current = stream.clone();
+        localStreamRef.current = stream;
 
         if (localVideoRef.current) {
           localVideoRef.current.srcObject = stream;
-          setStatus("Camera and microphone ready");
         }
-      } catch (err) {
-        console.error("Error setting up media stream:", err);
-        setError("Failed to access media devices");
-        setStatus("Setup failed");
       }
-    };
 
-    setupMediaStream();
-  }, [socketConnected]);
+      // Verify stream is available before proceeding
+      if (!localStreamRef.current) {
+        throw new Error("Cannot start call without media access");
+      }
 
-  // WebRTC handlers
- const handleStartCall = async () => {
-   try {
-     setStatus("Call starting...");
+      // Create and configure RTCPeerConnection
+      peerConnectionRef.current = createPeerConnection(
+        handleIceCandidate,
+        handleTrackEvent
+      );
 
-     // Check if local stream is available
-     if (!localStreamRef.current) {
-       // Try to initialize the stream if it's not available
-       const { stream, error: mediaError } = await getLocalStream();
+      // Add local tracks to the connection
+      addLocalTracks(peerConnectionRef.current, localStreamRef.current);
 
-       if (mediaError) {
-         setError(mediaError);
-         setStatus("Media access failed");
-         return;
-       }
+      // Create and send offer
+      const offer = await createOffer(peerConnectionRef.current);
+      socketRef.current.emit("webrtc_offer", {
+        roomID,
+        sdp: offer,
+      });
 
-       localStreamRef.current = stream;
+      setIsCallStarted(true);
+      setStatus("Calling...");
+    } catch (err) {
+      console.error("Error starting call:", err);
+      setError("Failed to start call: " + err.message);
+      setStatus("Call failed");
+    }
+  };
 
-       if (localVideoRef.current) {
-         localVideoRef.current.srcObject = stream;
-       }
-     }
+  const handleWebRTCOffer = async (offer) => {
+    try {
+      if (isCallStarted) return;
+      setStatus("Incoming call...");
 
-     // Verify stream is available before proceeding
-     if (!localStreamRef.current) {
-       throw new Error("Cannot start call without media access");
-     }
+      // Check if local stream is available
+      if (!localStreamRef.current) {
+        // Try to initialize the stream if it's not available
+        const { stream, error: mediaError } = await getLocalStream();
 
-     // Create and configure RTCPeerConnection
-     peerConnectionRef.current = createPeerConnection(
-       handleIceCandidate,
-       handleTrackEvent
-     );
+        if (mediaError) {
+          setError(mediaError);
+          setStatus("Media access failed");
+          return;
+        }
 
-     // Add local tracks to the connection
-     addLocalTracks(peerConnectionRef.current, localStreamRef.current);
+        localStreamRef.current = stream;
 
-     // Create and send offer
-     const offer = await createOffer(peerConnectionRef.current);
-     socketRef.current.emit("webrtc_offer", {
-       roomID,
-       sdp: offer,
-     });
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+      }
 
-     setIsCallStarted(true);
-     setStatus("Calling...");
-   } catch (err) {
-     console.error("Error starting call:", err);
-     setError("Failed to start call: " + err.message);
-     setStatus("Call failed");
-   }
- };
+      // Verify stream is available before proceeding
+      if (!localStreamRef.current) {
+        throw new Error("Cannot answer call without media access");
+      }
 
- const handleWebRTCOffer = async (offer) => {
-   try {
-     if (isCallStarted) return;
-     setStatus("Incoming call...");
+      // Create and configure RTCPeerConnection
+      peerConnectionRef.current = createPeerConnection(
+        handleIceCandidate,
+        handleTrackEvent
+      );
 
-     // Check if local stream is available
-     if (!localStreamRef.current) {
-       // Try to initialize the stream if it's not available
-       const { stream, error: mediaError } = await getLocalStream();
+      // Add local tracks to the connection
+      addLocalTracks(peerConnectionRef.current, localStreamRef.current);
 
-       if (mediaError) {
-         setError(mediaError);
-         setStatus("Media access failed");
-         return;
-       }
+      // Handle offer and create answer
+      const answer = await handleOffer(peerConnectionRef.current, offer);
+      socketRef.current.emit("webrtc_answer", {
+        roomID,
+        sdp: answer,
+      });
 
-       localStreamRef.current = stream;
+      setIsCallStarted(true);
+      setStatus("Connecting...");
+    } catch (err) {
+      console.error("Error handling offer:", err);
+      setError("Failed to process incoming call: " + err.message);
+      setStatus("Call failed");
+    }
+  };
 
-       if (localVideoRef.current) {
-         localVideoRef.current.srcObject = stream;
-       }
-     }
-
-     // Verify stream is available before proceeding
-     if (!localStreamRef.current) {
-       throw new Error("Cannot answer call without media access");
-     }
-
-     // Create and configure RTCPeerConnection
-     peerConnectionRef.current = createPeerConnection(
-       handleIceCandidate,
-       handleTrackEvent
-     );
-
-     // Add local tracks to the connection
-     addLocalTracks(peerConnectionRef.current, localStreamRef.current);
-
-     // Handle offer and create answer
-     const answer = await handleOffer(peerConnectionRef.current, offer);
-     socketRef.current.emit("webrtc_answer", {
-       roomID,
-       sdp: answer,
-     });
-
-     setIsCallStarted(true);
-     setStatus("Connecting...");
-   } catch (err) {
-     console.error("Error handling offer:", err);
-     setError("Failed to process incoming call: " + err.message);
-     setStatus("Call failed");
-   }
-    };
-    
   const handleWebRTCAnswer = async (answer) => {
     try {
+      if (!peerConnectionRef.current) {
+        console.error("No peer connection available");
+        return;
+      }
+
       await handleAnswer(peerConnectionRef.current, answer);
       setStatus("Call connected");
     } catch (err) {
@@ -245,7 +279,7 @@ export default function VideoCall({ roomID }) {
 
   const handleWebRTCIceCandidate = async (event) => {
     try {
-      if (peerConnectionRef.current) {
+      if (peerConnectionRef.current && event.candidate) {
         await addIceCandidate(peerConnectionRef.current, event.candidate);
       }
     } catch (err) {
@@ -254,6 +288,12 @@ export default function VideoCall({ roomID }) {
   };
 
   const handleTrackEvent = (event) => {
+    console.log("Track received:", event.track.kind);
+
+    if (!remoteStreamRef.current) {
+      remoteStreamRef.current = new MediaStream();
+    }
+
     remoteStreamRef.current.addTrack(event.track);
 
     if (remoteVideoRef.current) {

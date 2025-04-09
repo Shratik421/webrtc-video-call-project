@@ -19,55 +19,68 @@ export default function SocketHandler(req, res) {
 
     // Handle joining a room
     socket.on("join-room", (roomID) => {
-      const roomClients = io.sockets.adapter.rooms.get(roomID) || { size: 0 };
+      // Normalize roomID to prevent case/character confusion
+      const normalizedRoomID = roomID.toString().trim();
+
+      const roomClients = io.sockets.adapter.rooms.get(normalizedRoomID) || {
+        size: 0,
+      };
       const numberOfClients = roomClients.size;
+
+      console.log(`Room ${normalizedRoomID} has ${numberOfClients} clients`);
 
       // These events are sent to the client to handle
       if (numberOfClients === 0) {
         console.log(
-          `Creating room ${roomID} and emitting room_created socket event`
+          `Creating room ${normalizedRoomID} and emitting room_created socket event`
         );
-        socket.join(roomID);
-        socket.emit("room_created", roomID);
+        socket.join(normalizedRoomID);
+        socket.emit("room_created", normalizedRoomID);
       } else if (numberOfClients === 1) {
         console.log(
-          `Joining room ${roomID} and emitting room_joined socket event`
+          `Joining room ${normalizedRoomID} and emitting room_joined socket event`
         );
-        socket.join(roomID);
-        socket.emit("room_joined", roomID);
+        socket.join(normalizedRoomID);
+        socket.emit("room_joined", normalizedRoomID);
       } else {
         console.log(
-          `Can't join room ${roomID}, emitting full_room socket event`
+          `Can't join room ${normalizedRoomID}, emitting full_room socket event`
         );
-        socket.emit("full_room", roomID);
+        socket.emit("full_room", normalizedRoomID);
       }
     });
 
     // Handle WebRTC signaling
     socket.on("start_call", (roomID) => {
-      console.log(`Broadcasting start_call event to peers in room ${roomID}`);
-      socket.to(roomID).emit("start_call");
+      const normalizedRoomID = roomID.toString().trim();
+      console.log(
+        `Broadcasting start_call event to peers in room ${normalizedRoomID}`
+      );
+      socket.to(normalizedRoomID).emit("start_call");
     });
 
     socket.on("webrtc_offer", (event) => {
+      const normalizedRoomID = event.roomID.toString().trim();
       console.log(
-        `Broadcasting webrtc_offer event to peers in room ${event.roomID}`
+        `Broadcasting webrtc_offer event to peers in room ${normalizedRoomID}`
       );
-      socket.to(event.roomID).emit("webrtc_offer", event.sdp);
+      socket.to(normalizedRoomID).emit("webrtc_offer", event.sdp);
     });
 
     socket.on("webrtc_answer", (event) => {
+      const normalizedRoomID = event.roomID.toString().trim();
       console.log(
-        `Broadcasting webrtc_answer event to peers in room ${event.roomID}`
+        `Broadcasting webrtc_answer event to peers in room ${normalizedRoomID}`
       );
-      socket.to(event.roomID).emit("webrtc_answer", event.sdp);
+      socket.to(normalizedRoomID).emit("webrtc_answer", event.sdp);
     });
 
     socket.on("webrtc_ice_candidate", (event) => {
+      const normalizedRoomID = event.roomID.toString().trim();
       console.log(
-        `Broadcasting webrtc_ice_candidate event to peers in room ${event.roomID}`
+        `Broadcasting webrtc_ice_candidate event to peers in room ${normalizedRoomID}`
       );
-      socket.to(event.roomID).emit("webrtc_ice_candidate", event);
+      socket.to(normalizedRoomID).emit("webrtc_ice_candidate", event);
     });
 
     socket.on("disconnect", () => {
